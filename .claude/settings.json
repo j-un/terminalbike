@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "make test 2>&1",
+            "timeout": 60,
+            "statusMessage": "Running make test..."
+          }
+        ]
+      }
+    ]
+  }
+}
