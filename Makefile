@@ -16,6 +16,6 @@ test: check-format
 
 build: test
 	@echo "--- Building executable... ---"
-	go build
+	go build -o terminalbike .
 
 .PHONY: build test check-format tidy tidy-check
