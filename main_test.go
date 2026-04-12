@@ -203,6 +203,22 @@ func TestUpdate_CoolZoneResetsTemp(t *testing.T) {
 	}
 }
 
+func TestUpdate_CoolZoneSkippedWhileJumping(t *testing.T) {
+	g := newTestGame()
+	g.playerLane = 2
+	g.distance = 4.5
+	g.temp = 80
+	g.jumping = true
+	g.jumpVel = 18
+	g.obstacles = []obstacle{{x: 8, lane: 2, kind: kindCoolZone}}
+
+	g.update(1.0)
+
+	if g.temp == 0 {
+		t.Error("cool zone should NOT reset temp while jumping")
+	}
+}
+
 func TestUpdate_Finish(t *testing.T) {
 	g := newTestGame()
 	g.distance = float64(trackLength - 5)
