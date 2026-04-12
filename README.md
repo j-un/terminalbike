@@ -37,13 +37,14 @@ Recommended terminal size: **80×24 or larger**. Wider screens are more fun!
 
 ## Controls
 
-| Key     | Action      |
-| ------- | ----------- |
-| ↑ / ↓   | Change lane |
-| →       | Accelerate  |
-| ←       | Brake       |
-| Space   | Turbo       |
-| q / Esc | Quit        |
+| Key             | Action      |
+| --------------- | ----------- |
+| ↑ / w / k       | Lane up     |
+| ↓ / s / j       | Lane down   |
+| → / d / l       | Accelerate  |
+| ← / a / h       | Brake       |
+| Space           | Turbo       |
+| q / Esc         | Quit        |
 
 ## Objects
 
