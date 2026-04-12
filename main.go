@@ -173,35 +173,58 @@ func (g *game) handleKey(ev *tcell.EventKey) bool {
 		}
 		return false
 	}
+	// Map key/rune to a unified action string.
+	action := ""
 	switch ev.Key() {
 	case tcell.KeyEscape:
-		return true
+		action = "quit"
 	case tcell.KeyUp:
-		// Cannot change lanes while jumping
+		action = "up"
+	case tcell.KeyDown:
+		action = "down"
+	case tcell.KeyRight:
+		action = "accel"
+	case tcell.KeyLeft:
+		action = "brake"
+	}
+	switch ev.Rune() {
+	case 'q':
+		action = "quit"
+	case 'w', 'k':
+		action = "up"
+	case 's', 'j':
+		action = "down"
+	case 'd', 'l':
+		action = "accel"
+	case 'a', 'h':
+		action = "brake"
+	case ' ':
+		action = "turbo"
+	}
+
+	switch action {
+	case "quit":
+		return true
+	case "up":
 		if g.playerLane > 0 && !g.crashed && !g.jumping {
 			g.playerLane--
 		}
-	case tcell.KeyDown:
+	case "down":
 		if g.playerLane < numLanes-1 && !g.crashed && !g.jumping {
 			g.playerLane++
 		}
-	case tcell.KeyRight:
+	case "accel":
 		if !g.crashed {
 			g.accelOn = true
 			g.brakeOn = false
 		}
-	case tcell.KeyLeft:
+	case "brake":
 		if !g.crashed {
 			g.brakeOn = true
 			g.accelOn = false
 		}
-	}
-	switch ev.Rune() {
-	case 'q':
-		return true
-	case ' ':
+	case "turbo":
 		if !g.crashed && g.spaceCooldown <= 0 {
-			// Debounce to prevent fast toggling from key repeat
 			g.spaceCooldown = 0.15
 			if g.turboOn {
 				g.turboOn = false
@@ -493,7 +516,7 @@ func (g *game) drawOpening(s tcell.Screen) {
 	drawString(s, (g.w-len(quitMsg))/2, subY+1, bg.Foreground(tcell.ColorGray), quitMsg)
 
 	controls := []string{
-		"↑ ↓ : Lane change    → : Accel    ← : Brake    Space : Turbo",
+		"↑↓/wk/jk : Lane    →/d/l : Accel    ←/a/h : Brake    Space : Turbo",
 		"#=Block   /=Ramp   »=CoolZone   ~=Mud   @=Rival",
 	}
 	cstyle := bg.Foreground(tcell.ColorAqua)
@@ -504,7 +527,7 @@ func (g *game) drawOpening(s tcell.Screen) {
 
 func (g *game) drawHeader(s tcell.Screen) {
 	style := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorYellow).Bold(true)
-	title := "  TERMINALBIKE  ( ↑↓: lane   →: accel   ←: brake   space: turbo   q: quit )"
+	title := "  TERMINALBIKE  ( ↑↓/wasd/hjkl: move   space: turbo   q: quit )"
 	// Fill the entire header row with a black background
 	for x := 0; x < g.w; x++ {
 		s.SetContent(x, 0, ' ', nil, style)

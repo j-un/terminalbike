@@ -296,6 +296,109 @@ func TestUpdate_RivalCollision_RemovesRival(t *testing.T) {
 	}
 }
 
+func TestHandleKey_WASDControls(t *testing.T) {
+	g := newTestGame()
+	startLane := g.playerLane
+
+	// w = lane up
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'w', tcell.ModNone))
+	if g.playerLane != startLane-1 {
+		t.Errorf("'w' should move lane up: want %d, got %d", startLane-1, g.playerLane)
+	}
+
+	// s = lane down (back to start)
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 's', tcell.ModNone))
+	if g.playerLane != startLane {
+		t.Errorf("'s' should move lane down: want %d, got %d", startLane, g.playerLane)
+	}
+
+	// d = accel
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'd', tcell.ModNone))
+	if !g.accelOn || g.brakeOn {
+		t.Error("'d' should enable accel and clear brake")
+	}
+
+	// a = brake
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'a', tcell.ModNone))
+	if !g.brakeOn || g.accelOn {
+		t.Error("'a' should enable brake and clear accel")
+	}
+}
+
+func TestHandleKey_HJKLControls(t *testing.T) {
+	g := newTestGame()
+	startLane := g.playerLane
+
+	// k = lane up
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'k', tcell.ModNone))
+	if g.playerLane != startLane-1 {
+		t.Errorf("'k' should move lane up: want %d, got %d", startLane-1, g.playerLane)
+	}
+
+	// j = lane down (back to start)
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'j', tcell.ModNone))
+	if g.playerLane != startLane {
+		t.Errorf("'j' should move lane down: want %d, got %d", startLane, g.playerLane)
+	}
+
+	// l = accel
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'l', tcell.ModNone))
+	if !g.accelOn || g.brakeOn {
+		t.Error("'l' should enable accel and clear brake")
+	}
+
+	// h = brake
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'h', tcell.ModNone))
+	if !g.brakeOn || g.accelOn {
+		t.Error("'h' should enable brake and clear accel")
+	}
+}
+
+func TestHandleKey_WASDBlockedWhileJumping(t *testing.T) {
+	g := newTestGame()
+	g.jumping = true
+	start := g.playerLane
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'w', tcell.ModNone))
+	if g.playerLane != start {
+		t.Error("'w' should not change lane while jumping")
+	}
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 's', tcell.ModNone))
+	if g.playerLane != start {
+		t.Error("'s' should not change lane while jumping")
+	}
+}
+
+func TestHandleKey_HJKLBlockedWhileJumping(t *testing.T) {
+	g := newTestGame()
+	g.jumping = true
+	start := g.playerLane
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'k', tcell.ModNone))
+	if g.playerLane != start {
+		t.Error("'k' should not change lane while jumping")
+	}
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'j', tcell.ModNone))
+	if g.playerLane != start {
+		t.Error("'j' should not change lane while jumping")
+	}
+}
+
+func TestHandleKey_WASDBlockedWhileCrashed(t *testing.T) {
+	g := newTestGame()
+	g.crashed = true
+	start := g.playerLane
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'w', tcell.ModNone))
+	if g.playerLane != start {
+		t.Error("'w' should not change lane while crashed")
+	}
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'd', tcell.ModNone))
+	if g.accelOn {
+		t.Error("'d' should not enable accel while crashed")
+	}
+}
+
 func TestHandleKey_NoLaneChangeWhileJumping(t *testing.T) {
 	g := newTestGame()
 	g.jumping = true
