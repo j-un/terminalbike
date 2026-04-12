@@ -7,6 +7,10 @@ Exciting bike racing game in your terminal.
 
 ## Install
 
+Download the archive for your OS and architecture from the [Releases](https://github.com/j-un/terminalbike/releases) page, extract it, and place the `terminalbike` binary somewhere in your `PATH`.
+
+### Build from source
+
 Requires [Go](https://go.dev/) to be installed.
 
 ```sh
@@ -16,7 +20,7 @@ make build
 ## Run
 
 ```sh
-./terminalbike
+terminalbike
 ```
 
 Recommended terminal size: **80×24 or larger**. Wider screens are more fun!
