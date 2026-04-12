@@ -335,8 +335,10 @@ func (g *game) update(dt float64) {
 					g.jumpVel = 18
 				}
 			case kindCoolZone:
-				// Cool zone: instantly cool the engine temperature
-				g.temp = 0
+				// Cool zone: instantly cool the engine temperature (only on ground)
+				if !g.jumping {
+					g.temp = 0
+				}
 			case kindMud:
 				// Mud: speed resets to default (no crash).
 				// Can be jumped over while airborne.
