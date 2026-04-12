@@ -98,6 +98,9 @@ type game struct {
 	spaceCooldown float64 // remaining debounce time for turbo toggle (seconds)
 	overheatTimer float64 // seconds remaining to show OVERHEAT! label after overheat
 
+	finishing   bool    // true while running off-screen after crossing the finish line
+	finishSpeed float64 // speed at the moment of crossing the finish line
+
 	bestTimes    []float64 // top-3 finish times in ascending order (in-memory only)
 	lastBestRank int       // rank of the most recent finish (1-3), 0 = not ranked
 }
@@ -157,7 +160,7 @@ func (g *game) handleKey(ev *tcell.EventKey) bool {
 		}
 		return false
 	}
-	if g.finished {
+	if g.finishing {
 		if ev.Key() == tcell.KeyEnter || ev.Rune() == ' ' {
 			best := g.bestTimes
 			*g = *newGame(g.w, g.h, g.rng)
@@ -212,6 +215,20 @@ func (g *game) handleKey(ev *tcell.EventKey) bool {
 
 func (g *game) update(dt float64) {
 	if !g.started || g.finished {
+		return
+	}
+
+	// Handle finishing run-off: player and rivals keep moving at their finish speeds
+	if g.finishing {
+		g.distance += g.finishSpeed * dt
+		for i := range g.rivals {
+			g.rivals[i].xf += g.rivals[i].speed * dt
+		}
+		// Player has run off the right edge of the screen
+		playerScreenX := playerCol + int(g.distance) - trackLength
+		if playerScreenX >= g.w {
+			g.finished = true
+		}
 		return
 	}
 
@@ -300,7 +317,8 @@ func (g *game) update(dt float64) {
 
 	if g.distance >= trackLength {
 		g.distance = trackLength
-		g.finished = true
+		g.finishing = true
+		g.finishSpeed = g.speed
 		g.recordTime(g.elapsed.Seconds())
 		return
 	}
@@ -388,6 +406,15 @@ func (g *game) recordTime(t float64) {
 	}
 }
 
+// cameraX returns the camera scroll position. During the finishing run-off
+// the camera freezes at the finish line so characters visibly run off-screen.
+func (g *game) cameraX() int {
+	if g.finishing || g.finished {
+		return trackLength
+	}
+	return int(g.distance)
+}
+
 // ----- Rendering -----
 
 func (g *game) draw(s tcell.Screen) {
@@ -407,7 +434,7 @@ func (g *game) draw(s tcell.Screen) {
 	g.drawPlayer(s)
 	g.drawFooter(s)
 
-	if g.finished {
+	if g.finishing {
 		g.drawFinish(s)
 	}
 }
@@ -500,9 +527,10 @@ func (g *game) drawTrack(s tcell.Screen) {
 	}
 
 	// Top and bottom fences
+	cam := g.cameraX()
 	for x := 0; x < g.w; x++ {
 		ch := '='
-		if (x+int(g.distance))%4 < 2 {
+		if (x+cam)%4 < 2 {
 			ch = '-'
 		}
 		s.SetContent(x, top-1, ch, nil, bg.Foreground(tcell.ColorGreen))
@@ -513,21 +541,21 @@ func (g *game) drawTrack(s tcell.Screen) {
 	for lane := 1; lane < numLanes; lane++ {
 		y := top + lane*laneHeight - 1
 		for x := 0; x < g.w; x++ {
-			if (x+int(g.distance))%6 < 3 {
+			if (x+cam)%6 < 3 {
 				s.SetContent(x, y, '·', nil, bg.Foreground(tcell.ColorGray))
 			}
 		}
 	}
 
 	// Start / finish lines
-	startScreenX := playerCol - int(g.distance)
+	startScreenX := playerCol - cam
 	if startScreenX >= 0 && startScreenX < g.w {
 		for lane := 0; lane < numLanes; lane++ {
 			y := top + lane*laneHeight
 			s.SetContent(startScreenX, y, '|', nil, bg.Foreground(tcell.ColorWhite).Bold(true))
 		}
 	}
-	finishScreenX := trackLength + playerCol - int(g.distance)
+	finishScreenX := trackLength + playerCol - cam
 	if finishScreenX >= 0 && finishScreenX < g.w {
 		for lane := 0; lane < numLanes; lane++ {
 			y := top + lane*laneHeight
@@ -541,8 +569,9 @@ func (g *game) drawTrack(s tcell.Screen) {
 
 func (g *game) drawObstacles(s tcell.Screen) {
 	top := headerRows + 1
+	cam := g.cameraX()
 	for _, o := range g.obstacles {
-		sx := o.x + playerCol - int(g.distance)
+		sx := o.x + playerCol - cam
 		if sx < 0 || sx >= g.w {
 			continue
 		}
@@ -570,8 +599,9 @@ func (g *game) drawObstacles(s tcell.Screen) {
 
 func (g *game) drawRivals(s tcell.Screen) {
 	top := headerRows + 1
+	cam := g.cameraX()
 	for _, rv := range g.rivals {
-		sx := int(rv.xf) + playerCol - int(g.distance)
+		sx := int(rv.xf) + playerCol - cam
 		if sx < 0 || sx >= g.w {
 			continue
 		}
@@ -598,8 +628,17 @@ func (g *game) drawPlayer(s tcell.Screen) {
 	} else if g.turboOn {
 		style = bg.Foreground(tcell.ColorYellow).Bold(true)
 	}
-	s.SetContent(playerCol-1, y, '=', nil, style)
-	s.SetContent(playerCol, y, ch, nil, style)
+	x := playerCol
+	if g.finishing {
+		x = playerCol + int(g.distance) - trackLength
+	}
+	if x >= g.w {
+		return
+	}
+	if x-1 >= 0 {
+		s.SetContent(x-1, y, '=', nil, style)
+	}
+	s.SetContent(x, y, ch, nil, style)
 }
 
 func (g *game) drawFooter(s tcell.Screen) {
@@ -626,8 +665,12 @@ func (g *game) drawFooter(s tcell.Screen) {
 	case g.brakeOn:
 		modeStr = "Brake"
 	}
+	displayDist := int(g.distance)
+	if g.finishing {
+		displayDist = trackLength
+	}
 	info := fmt.Sprintf("  Time: %5.1fs   Speed: %3.0f   Mode: %s   Dist: %3d/%d   TEMP ",
-		g.elapsed.Seconds(), g.speed, modeStr, int(g.distance), trackLength)
+		g.elapsed.Seconds(), g.speed, modeStr, displayDist, trackLength)
 	drawString(s, 0, baseY, st, info)
 
 	// TEMP gauge: red background, filled with green from the left based on cooling.
