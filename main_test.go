@@ -219,18 +219,64 @@ func TestUpdate_CoolZoneSkippedWhileJumping(t *testing.T) {
 	}
 }
 
-func TestUpdate_Finish(t *testing.T) {
+func TestUpdate_Finish_EntersFinishing(t *testing.T) {
 	g := newTestGame()
 	g.distance = float64(trackLength - 5)
-	g.speed = 20
+	g.speed = 40
+	g.accelOn = true // hold accel so speed stays at accelCap
+
+	g.update(0.2)
+
+	if !g.finishing {
+		t.Error("expected finishing=true after crossing trackLength")
+	}
+	if g.finished {
+		t.Error("finished should remain false until player runs off-screen")
+	}
+	if g.distance != float64(trackLength) {
+		t.Errorf("distance should clamp to trackLength, got %v", g.distance)
+	}
+	if g.finishSpeed != 40 {
+		t.Errorf("finishSpeed should be 40, got %v", g.finishSpeed)
+	}
+}
+
+func TestUpdate_FinishingRunOff(t *testing.T) {
+	g := newTestGame()
+	g.finishing = true
+	g.finishSpeed = 40
+	g.distance = float64(trackLength)
+	g.rivals = []rival{{xf: float64(trackLength + 5), lane: 1, speed: 15}}
+
+	g.update(1.0)
+
+	// Player should advance beyond trackLength at finishSpeed
+	wantDist := float64(trackLength) + 40.0
+	if g.distance != wantDist {
+		t.Errorf("distance should be %v, got %v", wantDist, g.distance)
+	}
+	// Rival should also keep moving
+	wantRivalX := float64(trackLength+5) + 15.0
+	if g.rivals[0].xf != wantRivalX {
+		t.Errorf("rival xf should be %v, got %v", wantRivalX, g.rivals[0].xf)
+	}
+	// Not yet off-screen (playerCol + 40 < 80)
+	if g.finished {
+		t.Error("finished should remain false while player is still on-screen")
+	}
+}
+
+func TestUpdate_FinishingRunOff_OffScreen(t *testing.T) {
+	g := newTestGame()
+	g.finishing = true
+	g.finishSpeed = 40
+	// Place player far enough that one tick pushes it off-screen (w=80)
+	g.distance = float64(trackLength + g.w)
 
 	g.update(1.0)
 
 	if !g.finished {
-		t.Error("expected finished=true after crossing trackLength")
-	}
-	if g.distance != float64(trackLength) {
-		t.Errorf("distance should clamp to trackLength, got %v", g.distance)
+		t.Error("expected finished=true after player runs off-screen")
 	}
 }
 
@@ -314,15 +360,15 @@ func TestHandleKey_TurboBlockedWhenOverheated(t *testing.T) {
 
 func TestHandleKey_RestartOnFinish(t *testing.T) {
 	g := newTestGame()
-	g.finished = true
+	g.finishing = true
 	g.distance = float64(trackLength)
 	g.elapsed = 123
 	prevRng := g.rng
 
 	g.handleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
 
-	if g.finished {
-		t.Error("restart should clear finished")
+	if g.finishing {
+		t.Error("restart should clear finishing")
 	}
 	if !g.started {
 		t.Error("restart should start game immediately (started=true)")
@@ -335,6 +381,27 @@ func TestHandleKey_RestartOnFinish(t *testing.T) {
 	}
 	if g.rng != prevRng {
 		t.Error("restart should reuse existing rng")
+	}
+}
+
+func TestHandleKey_FinishingBlocksGameplay(t *testing.T) {
+	g := newTestGame()
+	g.finishing = true
+	startLane := g.playerLane
+
+	// Gameplay keys should be ignored
+	g.handleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone))
+	if g.playerLane != startLane {
+		t.Error("lane change should be blocked during finishing")
+	}
+	g.handleKey(tcell.NewEventKey(tcell.KeyRight, 0, tcell.ModNone))
+	if g.accelOn {
+		t.Error("accel should be blocked during finishing")
+	}
+
+	// Quit should still work
+	if !g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
+		t.Error("Escape should signal quit during finishing")
 	}
 }
 
