@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "make test 2>&1",
+            "command": "make test",
             "timeout": 60,
             "statusMessage": "Running make test..."
           }
