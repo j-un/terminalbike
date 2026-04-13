@@ -6,9 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "make test",
+            "command": "gofmt -l . | grep . && exit 1; go test ./...",
             "timeout": 60,
-            "statusMessage": "Running make test..."
+            "statusMessage": "Running format check and tests..."
           }
         ]
       }
