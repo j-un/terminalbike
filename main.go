@@ -122,20 +122,26 @@ func (g *game) generateCourse() {
 	r := g.rng
 	x := 40
 	for x < trackLength-20 {
+		usedLanes := make(map[int]bool)
 		if k, ok := randObstacleKind(r); ok {
+			lane := r.Intn(numLanes)
+			usedLanes[lane] = true
 			g.obstacles = append(g.obstacles, obstacle{
 				x:    x,
-				lane: r.Intn(numLanes),
+				lane: lane,
 				kind: k,
 			})
 		}
 		if r.Intn(3) == 0 {
 			if k, ok := randObstacleKind(r); ok {
-				g.obstacles = append(g.obstacles, obstacle{
-					x:    x,
-					lane: r.Intn(numLanes),
-					kind: k,
-				})
+				lane := r.Intn(numLanes)
+				if !usedLanes[lane] {
+					g.obstacles = append(g.obstacles, obstacle{
+						x:    x,
+						lane: lane,
+						kind: k,
+					})
+				}
 			}
 		}
 		// Probabilistically place a rival
