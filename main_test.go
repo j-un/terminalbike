@@ -618,6 +618,24 @@ func TestRecordTime_TieWithWorstKeepsNewEntry(t *testing.T) {
 	}
 }
 
+func TestGenerateCourse_NoDuplicateObstaclesOnSameLane(t *testing.T) {
+	// Run multiple seeds to exercise different random paths.
+	for seed := int64(0); seed < 50; seed++ {
+		rng := rand.New(rand.NewSource(seed))
+		g := newGame(80, 24, rng)
+
+		type pos struct{ x, lane int }
+		seen := make(map[pos]bool)
+		for _, o := range g.obstacles {
+			p := pos{o.x, o.lane}
+			if seen[p] {
+				t.Errorf("seed %d: duplicate obstacle at x=%d lane=%d", seed, o.x, o.lane)
+			}
+			seen[p] = true
+		}
+	}
+}
+
 func TestHandleKey_QuitReturnsTrue(t *testing.T) {
 	g := newTestGame()
 	if !g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
