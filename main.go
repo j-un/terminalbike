@@ -101,6 +101,8 @@ type game struct {
 	finishing   bool    // true while running off-screen after crossing the finish line
 	finishSpeed float64 // speed at the moment of crossing the finish line
 
+	countdown float64 // seconds remaining before the game becomes playable (0 = ready)
+
 	bestTimes    []float64 // top-3 finish times in ascending order (in-memory only)
 	lastBestRank int       // rank of the most recent finish (1-3), 0 = not ranked
 }
@@ -163,6 +165,7 @@ func (g *game) handleKey(ev *tcell.EventKey) bool {
 		}
 		if ev.Key() == tcell.KeyEnter || ev.Rune() == ' ' {
 			g.started = true
+			g.countdown = 3.0
 		}
 		return false
 	}
@@ -172,8 +175,15 @@ func (g *game) handleKey(ev *tcell.EventKey) bool {
 			*g = *newGame(g.w, g.h, g.rng)
 			g.bestTimes = best
 			g.started = true
+			g.countdown = 3.0
 			return false
 		}
+		if ev.Key() == tcell.KeyEscape || ev.Rune() == 'q' {
+			return true
+		}
+		return false
+	}
+	if g.countdown > 0 {
 		if ev.Key() == tcell.KeyEscape || ev.Rune() == 'q' {
 			return true
 		}
@@ -244,6 +254,14 @@ func (g *game) handleKey(ev *tcell.EventKey) bool {
 
 func (g *game) update(dt float64) {
 	if !g.started || g.finished {
+		return
+	}
+
+	if g.countdown > 0 {
+		g.countdown -= dt
+		if g.countdown < 0 {
+			g.countdown = 0
+		}
 		return
 	}
 
@@ -463,8 +481,55 @@ func (g *game) draw(s tcell.Screen) {
 	g.drawPlayer(s)
 	g.drawFooter(s)
 
+	if g.countdown > 0 {
+		g.drawCountdown(s)
+	}
+
 	if g.finishing {
 		g.drawFinish(s)
+	}
+}
+
+func (g *game) drawCountdown(s tcell.Screen) {
+	var n int
+	switch {
+	case g.countdown > 2:
+		n = 3
+	case g.countdown > 1:
+		n = 2
+	case g.countdown > 0:
+		n = 1
+	default:
+		return
+	}
+	glyphs := map[int][]string{
+		1: {"  #  ", " ##  ", "  #  ", "  #  ", " ### "},
+		2: {" ### ", "#   #", "   # ", "  #  ", "#####"},
+		3: {"#### ", "    #", " ### ", "    #", "#### "},
+	}
+	glyph := glyphs[n]
+	const cellW = 2
+	glyphW := len(glyph[0]) * cellW
+	glyphH := len(glyph)
+	trackTop := headerRows + 1
+	trackBottom := trackTop + numLanes*laneHeight
+	centerY := (trackTop + trackBottom) / 2
+	startX := (g.w - glyphW) / 2
+	startY := centerY - glyphH/2
+	block := tcell.StyleDefault.Background(tcell.ColorYellow)
+	for r := 0; r < glyphH; r++ {
+		for c := 0; c < len(glyph[r]); c++ {
+			if glyph[r][c] != '#' {
+				continue
+			}
+			for k := 0; k < cellW; k++ {
+				px := startX + c*cellW + k
+				py := startY + r
+				if px >= 0 && px < g.w && py >= 0 && py < g.h {
+					s.SetContent(px, py, ' ', nil, block)
+				}
+			}
+		}
 	}
 }
 
