@@ -296,6 +296,41 @@ func TestUpdate_RivalCollision_RemovesRival(t *testing.T) {
 	}
 }
 
+func TestUpdate_CountdownPausesGameplay(t *testing.T) {
+	g := newTestGame()
+	g.countdown = 2.0
+	g.speed = 25
+
+	g.update(0.5)
+
+	if g.distance != 0 {
+		t.Errorf("distance should not advance during countdown, got %v", g.distance)
+	}
+	if g.elapsed != 0 {
+		t.Errorf("elapsed should not advance during countdown, got %v", g.elapsed)
+	}
+	if g.countdown != 1.5 {
+		t.Errorf("countdown should tick down by dt, want 1.5, got %v", g.countdown)
+	}
+}
+
+func TestUpdate_CountdownExpiresAndResumes(t *testing.T) {
+	g := newTestGame()
+	g.countdown = 0.1
+
+	// Overshooting dt should clamp countdown at 0 (no negative value).
+	g.update(0.2)
+	if g.countdown != 0 {
+		t.Errorf("countdown should clamp to 0, got %v", g.countdown)
+	}
+
+	// Once the countdown has expired, the next tick should advance distance.
+	g.update(1.0)
+	if g.distance == 0 {
+		t.Error("distance should advance once countdown expires")
+	}
+}
+
 func TestHandleKey_WASDControls(t *testing.T) {
 	g := newTestGame()
 	startLane := g.playerLane
@@ -474,7 +509,10 @@ func TestHandleKey_RestartOnFinish(t *testing.T) {
 		t.Error("restart should clear finishing")
 	}
 	if !g.started {
-		t.Error("restart should start game immediately (started=true)")
+		t.Error("restart should set started=true")
+	}
+	if g.countdown != 3.0 {
+		t.Errorf("restart should arm the 3s countdown, got %v", g.countdown)
 	}
 	if g.distance != 0 {
 		t.Errorf("distance should reset, got %v", g.distance)
@@ -505,6 +543,63 @@ func TestHandleKey_FinishingBlocksGameplay(t *testing.T) {
 	// Quit should still work
 	if !g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
 		t.Error("Escape should signal quit during finishing")
+	}
+}
+
+func TestHandleKey_BlockedDuringCountdown(t *testing.T) {
+	g := newTestGame()
+	g.countdown = 2.0
+	startLane := g.playerLane
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone))
+	if g.playerLane != startLane {
+		t.Error("lane change should be blocked during countdown")
+	}
+	g.handleKey(tcell.NewEventKey(tcell.KeyRight, 0, tcell.ModNone))
+	if g.accelOn {
+		t.Error("accel should be blocked during countdown")
+	}
+	g.handleKey(tcell.NewEventKey(tcell.KeyLeft, 0, tcell.ModNone))
+	if g.brakeOn {
+		t.Error("brake should be blocked during countdown")
+	}
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, ' ', tcell.ModNone))
+	if g.turboOn {
+		t.Error("turbo should be blocked during countdown")
+	}
+}
+
+func TestHandleKey_QuitDuringCountdown(t *testing.T) {
+	g := newTestGame()
+	g.countdown = 2.0
+
+	if !g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
+		t.Error("Escape should signal quit during countdown")
+	}
+	if !g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)) {
+		t.Error("'q' should signal quit during countdown")
+	}
+}
+
+func TestHandleKey_StartTriggersCountdown(t *testing.T) {
+	// Enter from the opening screen starts the game with a 3s countdown.
+	g := newTestGame()
+	g.started = false
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+	if !g.started {
+		t.Error("Enter from opening should set started=true")
+	}
+	if g.countdown != 3.0 {
+		t.Errorf("Enter from opening should arm 3s countdown, got %v", g.countdown)
+	}
+
+	// Space from the opening should behave the same way.
+	g2 := newTestGame()
+	g2.started = false
+	g2.handleKey(tcell.NewEventKey(tcell.KeyRune, ' ', tcell.ModNone))
+	if !g2.started || g2.countdown != 3.0 {
+		t.Errorf("Space from opening should start+arm countdown, started=%v countdown=%v", g2.started, g2.countdown)
 	}
 }
 
