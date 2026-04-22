@@ -2,6 +2,7 @@ package main
 
 import (
 	"math/rand"
+	"strings"
 	"testing"
 
 	"github.com/gdamore/tcell/v2"
@@ -19,6 +20,15 @@ func newTestGame() *game {
 		speed:      idleSpeed,
 		started:    true,
 	}
+}
+
+// placeObstacleOnPlayerLane positions the player a few cells before a single
+// obstacle of the given kind on the same lane, so that g.update(1.0) at
+// idleSpeed crosses the obstacle exactly once.
+func placeObstacleOnPlayerLane(g *game, kind obstacleKind) {
+	g.playerLane = 2
+	g.distance = 4.5
+	g.obstacles = []obstacle{{x: 8, lane: 2, kind: kind}}
 }
 
 func TestRandObstacleKind_Distribution(t *testing.T) {
@@ -109,9 +119,7 @@ func TestUpdate_CrashRecovery(t *testing.T) {
 
 func TestUpdate_BlockCollision_Crashes(t *testing.T) {
 	g := newTestGame()
-	g.playerLane = 2
-	g.distance = 4.5
-	g.obstacles = []obstacle{{x: 8, lane: 2, kind: kindBlock}}
+	placeObstacleOnPlayerLane(g, kindBlock)
 
 	g.update(1.0)
 
@@ -138,11 +146,9 @@ func TestUpdate_BlockCollision_IgnoredOnDifferentLane(t *testing.T) {
 
 func TestUpdate_BlockCollision_AvoidedWhileJumping(t *testing.T) {
 	g := newTestGame()
-	g.playerLane = 2
-	g.distance = 4.5
+	placeObstacleOnPlayerLane(g, kindBlock)
 	g.jumping = true
 	g.jumpVel = 18
-	g.obstacles = []obstacle{{x: 8, lane: 2, kind: kindBlock}}
 
 	g.update(1.0)
 
@@ -153,9 +159,7 @@ func TestUpdate_BlockCollision_AvoidedWhileJumping(t *testing.T) {
 
 func TestUpdate_RampTriggersJump(t *testing.T) {
 	g := newTestGame()
-	g.playerLane = 2
-	g.distance = 4.5
-	g.obstacles = []obstacle{{x: 8, lane: 2, kind: kindRamp}}
+	placeObstacleOnPlayerLane(g, kindRamp)
 
 	g.update(1.0)
 
@@ -169,12 +173,10 @@ func TestUpdate_RampTriggersJump(t *testing.T) {
 
 func TestUpdate_MudResetsSpeed(t *testing.T) {
 	g := newTestGame()
-	g.playerLane = 2
-	g.distance = 4.5
+	placeObstacleOnPlayerLane(g, kindMud)
 	g.speed = 50
 	g.accelOn = true
 	g.turboOn = true
-	g.obstacles = []obstacle{{x: 8, lane: 2, kind: kindMud}}
 
 	g.update(0.2)
 
@@ -191,10 +193,8 @@ func TestUpdate_MudResetsSpeed(t *testing.T) {
 
 func TestUpdate_CoolZoneResetsTemp(t *testing.T) {
 	g := newTestGame()
-	g.playerLane = 2
-	g.distance = 4.5
+	placeObstacleOnPlayerLane(g, kindCoolZone)
 	g.temp = 80
-	g.obstacles = []obstacle{{x: 8, lane: 2, kind: kindCoolZone}}
 
 	g.update(1.0)
 
@@ -205,12 +205,10 @@ func TestUpdate_CoolZoneResetsTemp(t *testing.T) {
 
 func TestUpdate_CoolZoneSkippedWhileJumping(t *testing.T) {
 	g := newTestGame()
-	g.playerLane = 2
-	g.distance = 4.5
+	placeObstacleOnPlayerLane(g, kindCoolZone)
 	g.temp = 80
 	g.jumping = true
 	g.jumpVel = 18
-	g.obstacles = []obstacle{{x: 8, lane: 2, kind: kindCoolZone}}
 
 	g.update(1.0)
 
@@ -434,6 +432,36 @@ func TestHandleKey_WASDBlockedWhileCrashed(t *testing.T) {
 	}
 }
 
+func TestHandleKey_LaneUpClampedAtTop(t *testing.T) {
+	g := newTestGame()
+	g.playerLane = 0
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone))
+	if g.playerLane != 0 {
+		t.Errorf("lane should not go below 0, got %d", g.playerLane)
+	}
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'w', tcell.ModNone))
+	if g.playerLane != 0 {
+		t.Errorf("'w' should not push lane below 0, got %d", g.playerLane)
+	}
+}
+
+func TestHandleKey_LaneDownClampedAtBottom(t *testing.T) {
+	g := newTestGame()
+	g.playerLane = numLanes - 1
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone))
+	if g.playerLane != numLanes-1 {
+		t.Errorf("lane should not exceed numLanes-1, got %d", g.playerLane)
+	}
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 's', tcell.ModNone))
+	if g.playerLane != numLanes-1 {
+		t.Errorf("'s' should not push lane past numLanes-1, got %d", g.playerLane)
+	}
+}
+
 func TestHandleKey_NoLaneChangeWhileJumping(t *testing.T) {
 	g := newTestGame()
 	g.jumping = true
@@ -501,7 +529,8 @@ func TestHandleKey_RestartOnFinish(t *testing.T) {
 	g.finishing = true
 	g.distance = float64(trackLength)
 	g.elapsed = 123
-	prevRng := g.rng
+	g.bestTimes = []float64{10.10, 20.20, 30.30}
+	g.lastBestRank = 1
 
 	g.handleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
 
@@ -520,8 +549,19 @@ func TestHandleKey_RestartOnFinish(t *testing.T) {
 	if g.elapsed != 0 {
 		t.Errorf("elapsed should reset, got %v", g.elapsed)
 	}
-	if g.rng != prevRng {
-		t.Error("restart should reuse existing rng")
+	// A fresh course should have been generated.
+	if len(g.obstacles) == 0 {
+		t.Error("restart should regenerate the course")
+	}
+	// Previously recorded best times must survive the restart.
+	want := []float64{10.10, 20.20, 30.30}
+	if len(g.bestTimes) != len(want) {
+		t.Fatalf("bestTimes should be preserved across restart, got %v", g.bestTimes)
+	}
+	for i, v := range want {
+		if g.bestTimes[i] != v {
+			t.Errorf("bestTimes[%d] = %v, want %v", i, g.bestTimes[i], v)
+		}
 	}
 }
 
@@ -728,6 +768,85 @@ func TestGenerateCourse_NoDuplicateObstaclesOnSameLane(t *testing.T) {
 			}
 			seen[p] = true
 		}
+	}
+}
+
+// newSimScreen returns an initialized simulation screen sized to the test
+// game's default (80x24). The caller is responsible for calling Fini().
+func newSimScreen(t *testing.T) tcell.SimulationScreen {
+	t.Helper()
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatalf("sim screen init: %v", err)
+	}
+	s.SetSize(80, 24)
+	return s
+}
+
+func TestDraw_PlayerRendersAtFixedColumnDuringPlay(t *testing.T) {
+	g := newTestGame()
+	g.distance = 100
+	s := newSimScreen(t)
+	defer s.Fini()
+
+	g.draw(s)
+
+	laneY := headerRows + 1 + g.playerLane*laneHeight
+	mainc, _, _, _ := s.GetContent(playerCol, laneY)
+	if mainc != '>' {
+		t.Errorf("player '>' should render at col %d lane-y %d, got %q", playerCol, laneY, mainc)
+	}
+}
+
+func TestDraw_PlayerMovesRightDuringFinishing(t *testing.T) {
+	// During the finishing run-off the camera freezes at trackLength, so
+	// the player sprite is expected to appear to the right of playerCol.
+	g := newTestGame()
+	g.finishing = true
+	g.distance = float64(trackLength + 10)
+	s := newSimScreen(t)
+	defer s.Fini()
+
+	g.draw(s)
+
+	laneY := headerRows + 1 + g.playerLane*laneHeight
+	wantX := playerCol + 10
+	mainc, _, _, _ := s.GetContent(wantX, laneY)
+	if mainc != '>' {
+		t.Errorf("player '>' should render at col %d during finishing, got %q", wantX, mainc)
+	}
+	// Sanity: player is no longer at playerCol.
+	mainc, _, _, _ = s.GetContent(playerCol, laneY)
+	if mainc == '>' {
+		t.Error("player should have moved off playerCol during finishing")
+	}
+}
+
+func TestDraw_OpeningScreenBeforeStart(t *testing.T) {
+	g := newTestGame()
+	g.started = false
+	s := newSimScreen(t)
+	defer s.Fini()
+
+	g.draw(s)
+	s.Show()
+
+	// The opening screen renders the start prompt with plain text; pick a
+	// distinctive substring and look for it anywhere on the screen.
+	const needle = "Enter"
+	cells, w, h := s.GetContents()
+	found := false
+	for y := 0; y < h && !found; y++ {
+		var row []rune
+		for x := 0; x < w; x++ {
+			row = append(row, cells[y*w+x].Runes...)
+		}
+		if strings.Contains(string(row), needle) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("opening screen should render the start prompt containing 'Enter'")
 	}
 }
 
