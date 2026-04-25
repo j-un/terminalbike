@@ -37,14 +37,16 @@ Recommended terminal size: **80×24 or larger**. Wider screens are more fun!
 
 ## Controls
 
-| Key             | Action      |
-| --------------- | ----------- |
-| ↑ / w / k       | Lane up     |
-| ↓ / s / j       | Lane down   |
-| → / d / l       | Accelerate  |
-| ← / a / h       | Brake       |
-| Space           | Turbo       |
-| q / Esc         | Quit        |
+| Key             | Action                                          |
+| --------------- | ----------------------------------------------- |
+| ↑ / w / k       | Lane up                                         |
+| ↓ / s / j       | Lane down                                       |
+| → / d / l       | Accelerate                                      |
+| ← / a / h       | Brake                                           |
+| Space           | Turbo                                           |
+| Enter / Space   | Start a normal run (opening screen only)        |
+| a               | Start auto-play mode (opening screen only)      |
+| q / Esc         | Return to opening (in game) / Quit (on opening) |
 
 ## Objects
 
