@@ -580,9 +580,12 @@ func TestHandleKey_FinishingBlocksGameplay(t *testing.T) {
 		t.Error("accel should be blocked during finishing")
 	}
 
-	// Quit should still work
-	if !g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
-		t.Error("Escape should signal quit during finishing")
+	// Quit returns to the opening screen rather than ending the process.
+	if g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
+		t.Error("Escape during finishing should not signal quit")
+	}
+	if g.started {
+		t.Error("Escape during finishing should return to opening")
 	}
 }
 
@@ -613,11 +616,20 @@ func TestHandleKey_QuitDuringCountdown(t *testing.T) {
 	g := newTestGame()
 	g.countdown = 2.0
 
-	if !g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
-		t.Error("Escape should signal quit during countdown")
+	if g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
+		t.Error("Escape during countdown should not signal quit")
 	}
-	if !g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)) {
-		t.Error("'q' should signal quit during countdown")
+	if g.started {
+		t.Error("Escape during countdown should return to opening (started=false)")
+	}
+
+	g2 := newTestGame()
+	g2.countdown = 2.0
+	if g2.handleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)) {
+		t.Error("'q' during countdown should not signal quit")
+	}
+	if g2.started {
+		t.Error("'q' during countdown should return to opening (started=false)")
 	}
 }
 
@@ -850,12 +862,246 @@ func TestDraw_OpeningScreenBeforeStart(t *testing.T) {
 	}
 }
 
-func TestHandleKey_QuitReturnsTrue(t *testing.T) {
+func TestHandleKey_QuitFromOpeningReturnsTrue(t *testing.T) {
+	// Only the opening screen treats q / Esc as a process-quit.
 	g := newTestGame()
+	g.started = false
 	if !g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
-		t.Error("Escape should signal quit")
+		t.Error("Escape from opening should signal quit")
 	}
-	if !g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)) {
-		t.Error("'q' should signal quit")
+
+	g2 := newTestGame()
+	g2.started = false
+	if !g2.handleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)) {
+		t.Error("'q' from opening should signal quit")
+	}
+}
+
+func TestHandleKey_QuitDuringPlayReturnsToOpening(t *testing.T) {
+	g := newTestGame()
+	g.bestTimes = []float64{12.34}
+
+	if g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
+		t.Error("Escape during play should not signal quit")
+	}
+	if g.started {
+		t.Error("Escape during play should return to opening (started=false)")
+	}
+	if len(g.bestTimes) != 1 || g.bestTimes[0] != 12.34 {
+		t.Errorf("bestTimes should be preserved on return to opening, got %v", g.bestTimes)
+	}
+
+	g2 := newTestGame()
+	if g2.handleKey(tcell.NewEventKey(tcell.KeyRune, 'q', tcell.ModNone)) {
+		t.Error("'q' during play should not signal quit")
+	}
+	if g2.started {
+		t.Error("'q' during play should return to opening (started=false)")
+	}
+}
+
+func TestHandleKey_AutoFromOpening(t *testing.T) {
+	g := newTestGame()
+	g.started = false
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, 'a', tcell.ModNone))
+
+	if !g.started {
+		t.Error("'a' from opening should set started=true")
+	}
+	if !g.autoMode {
+		t.Error("'a' from opening should enable autoMode")
+	}
+	if g.countdown != 3.0 {
+		t.Errorf("'a' from opening should arm 3s countdown, got %v", g.countdown)
+	}
+}
+
+func TestHandleKey_AutoIgnoresGameplayKeys(t *testing.T) {
+	g := newTestGame()
+	g.autoMode = true
+	startLane := g.playerLane
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone))
+	if g.playerLane != startLane {
+		t.Error("manual lane keys should be ignored in auto mode")
+	}
+	g.handleKey(tcell.NewEventKey(tcell.KeyRight, 0, tcell.ModNone))
+	if g.accelOn {
+		t.Error("manual accel should be ignored in auto mode")
+	}
+	g.handleKey(tcell.NewEventKey(tcell.KeyRune, ' ', tcell.ModNone))
+	if g.turboOn {
+		t.Error("manual turbo should be ignored in auto mode")
+	}
+}
+
+func TestHandleKey_AutoRetryKeepsAutoMode(t *testing.T) {
+	// Pressing Enter on the auto-mode finish screen should restart via
+	// restart() and preserve autoMode for the next run.
+	g := newTestGame()
+	g.autoMode = true
+	g.finishing = true
+
+	g.handleKey(tcell.NewEventKey(tcell.KeyEnter, 0, tcell.ModNone))
+
+	if !g.started {
+		t.Error("Enter on auto-mode finish should restart (started=true)")
+	}
+	if !g.autoMode {
+		t.Error("Enter on auto-mode finish should preserve autoMode")
+	}
+	if g.finishing {
+		t.Error("Enter on auto-mode finish should clear finishing")
+	}
+	if g.countdown != 3.0 {
+		t.Errorf("Enter on auto-mode finish should arm 3s countdown, got %v", g.countdown)
+	}
+}
+
+func TestHandleKey_AutoQuitReturnsToOpening(t *testing.T) {
+	g := newTestGame()
+	g.autoMode = true
+
+	if g.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone)) {
+		t.Error("Escape in auto mode should not signal quit")
+	}
+	if g.started || g.autoMode {
+		t.Error("Escape in auto mode should return to opening and clear autoMode")
+	}
+}
+
+func TestUpdate_AutoRestartsAfterFinished(t *testing.T) {
+	g := newTestGame()
+	g.autoMode = true
+	g.finished = true
+	g.bestTimes = []float64{15.5}
+
+	// Below the restart threshold: no restart yet.
+	g.update(1.0)
+	if !g.finished {
+		t.Error("auto should not restart before timer elapses")
+	}
+
+	// Cross the threshold (>= 2.0s).
+	g.update(1.5)
+	if g.finished {
+		t.Error("auto restart should clear finished")
+	}
+	if !g.started {
+		t.Error("auto restart should set started=true")
+	}
+	if !g.autoMode {
+		t.Error("auto restart should keep autoMode=true")
+	}
+	if g.countdown != 3.0 {
+		t.Errorf("auto restart should arm 3s countdown, got %v", g.countdown)
+	}
+	if len(g.bestTimes) != 1 || g.bestTimes[0] != 15.5 {
+		t.Errorf("bestTimes should be preserved on auto restart, got %v", g.bestTimes)
+	}
+}
+
+func TestUpdate_NonAutoFinishedDoesNotAutoRestart(t *testing.T) {
+	g := newTestGame()
+	g.finished = true
+
+	g.update(5.0)
+
+	if !g.finished {
+		t.Error("non-auto finished game should remain finished without input")
+	}
+}
+
+func TestRecordTime_AutoModeWritesToAutoBest(t *testing.T) {
+	g := newTestGame()
+	g.autoMode = true
+	g.bestTimes = []float64{10.0} // pre-existing normal-mode score
+
+	g.recordTime(15.5)
+
+	if len(g.bestTimes) != 1 || g.bestTimes[0] != 10.0 {
+		t.Errorf("auto-mode recordTime should not touch bestTimes, got %v", g.bestTimes)
+	}
+	if len(g.bestTimesAuto) != 1 || g.bestTimesAuto[0] != 15.5 {
+		t.Errorf("auto-mode recordTime should write to bestTimesAuto, got %v", g.bestTimesAuto)
+	}
+	if g.lastBestRank != 1 {
+		t.Errorf("first auto-mode finish should rank 1, got %d", g.lastBestRank)
+	}
+}
+
+func TestReturnToOpening_DiscardsAutoBest(t *testing.T) {
+	g := newTestGame()
+	g.bestTimes = []float64{10.0, 20.0}
+	g.bestTimesAuto = []float64{30.0, 40.0}
+	g.autoMode = true
+
+	g.returnToOpening()
+
+	if len(g.bestTimes) != 2 || g.bestTimes[0] != 10.0 || g.bestTimes[1] != 20.0 {
+		t.Errorf("normal bestTimes should survive returnToOpening, got %v", g.bestTimes)
+	}
+	if len(g.bestTimesAuto) != 0 {
+		t.Errorf("auto bestTimes should be cleared on returnToOpening, got %v", g.bestTimesAuto)
+	}
+	if g.autoMode {
+		t.Error("returnToOpening should clear autoMode")
+	}
+}
+
+func TestDraw_AutoModeShowsHeaderBadge(t *testing.T) {
+	g := newTestGame()
+	g.autoMode = true
+	s := newSimScreen(t)
+	defer s.Fini()
+
+	g.draw(s)
+	s.Show()
+
+	cells, w, _ := s.GetContents()
+	var header []rune
+	for x := 0; x < w; x++ {
+		header = append(header, cells[x].Runes...)
+	}
+	if !strings.Contains(string(header), "AUTO PLAY") {
+		t.Errorf("auto-mode header should contain 'AUTO PLAY' badge, got %q", string(header))
+	}
+}
+
+func TestDraw_NormalModeHasNoAutoBadge(t *testing.T) {
+	g := newTestGame()
+	s := newSimScreen(t)
+	defer s.Fini()
+
+	g.draw(s)
+	s.Show()
+
+	cells, w, _ := s.GetContents()
+	var header []rune
+	for x := 0; x < w; x++ {
+		header = append(header, cells[x].Runes...)
+	}
+	if strings.Contains(string(header), "AUTO PLAY") {
+		t.Errorf("normal-mode header should not contain 'AUTO PLAY' badge, got %q", string(header))
+	}
+}
+
+func TestRestart_KeepsBothBestTables(t *testing.T) {
+	g := newTestGame()
+	g.bestTimes = []float64{10.0}
+	g.bestTimesAuto = []float64{20.0}
+	g.autoMode = true
+
+	g.restart()
+
+	if len(g.bestTimes) != 1 || g.bestTimes[0] != 10.0 {
+		t.Errorf("restart should preserve bestTimes, got %v", g.bestTimes)
+	}
+	if len(g.bestTimesAuto) != 1 || g.bestTimesAuto[0] != 20.0 {
+		t.Errorf("restart should preserve bestTimesAuto, got %v", g.bestTimesAuto)
+	}
+	if !g.autoMode {
+		t.Error("restart should preserve autoMode flag")
 	}
 }

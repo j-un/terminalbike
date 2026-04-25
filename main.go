@@ -103,8 +103,13 @@ type game struct {
 
 	countdown float64 // seconds remaining before the game becomes playable (0 = ready)
 
-	bestTimes    []float64 // top-3 finish times in ascending order (in-memory only)
-	lastBestRank int       // rank of the most recent finish (1-3), 0 = not ranked
+	bestTimes     []float64 // top-3 normal-mode finish times (in-memory only)
+	bestTimesAuto []float64 // top-3 auto-mode finish times; cleared on return to opening
+	lastBestRank  int       // rank of the most recent finish (1-3), 0 = not ranked
+
+	autoMode         bool    // true while the computer plays automatically
+	autoCooldown     float64 // seconds until the auto player makes its next decision
+	autoRestartTimer float64 // seconds elapsed since the auto-mode game finished
 }
 
 func newGame(w, h int, rng *rand.Rand) *game {
@@ -166,61 +171,64 @@ func (g *game) handleKey(ev *tcell.EventKey) bool {
 		if ev.Key() == tcell.KeyEnter || ev.Rune() == ' ' {
 			g.started = true
 			g.countdown = 3.0
-		}
-		return false
-	}
-	if g.finishing {
-		if ev.Key() == tcell.KeyEnter || ev.Rune() == ' ' {
-			best := g.bestTimes
-			*g = *newGame(g.w, g.h, g.rng)
-			g.bestTimes = best
+		} else if ev.Rune() == 'a' {
 			g.started = true
+			g.autoMode = true
 			g.countdown = 3.0
-			return false
-		}
-		if ev.Key() == tcell.KeyEscape || ev.Rune() == 'q' {
-			return true
 		}
 		return false
-	}
-	if g.countdown > 0 {
-		if ev.Key() == tcell.KeyEscape || ev.Rune() == 'q' {
-			return true
-		}
-		return false
-	}
-	// Map key/rune to a unified action string.
-	action := ""
-	switch ev.Key() {
-	case tcell.KeyEscape:
-		action = "quit"
-	case tcell.KeyUp:
-		action = "up"
-	case tcell.KeyDown:
-		action = "down"
-	case tcell.KeyRight:
-		action = "accel"
-	case tcell.KeyLeft:
-		action = "brake"
-	}
-	switch ev.Rune() {
-	case 'q':
-		action = "quit"
-	case 'w', 'k':
-		action = "up"
-	case 's', 'j':
-		action = "down"
-	case 'd', 'l':
-		action = "accel"
-	case 'a', 'h':
-		action = "brake"
-	case ' ':
-		action = "turbo"
 	}
 
+	// Outside the opening screen, q / Esc returns to the opening instead of
+	// quitting the process. To exit, the user presses q again on the opening.
+	if ev.Key() == tcell.KeyEscape || ev.Rune() == 'q' {
+		g.returnToOpening()
+		return false
+	}
+
+	if g.finishing {
+		if ev.Key() == tcell.KeyEnter || ev.Rune() == ' ' {
+			g.restart()
+		}
+		return false
+	}
+
+	if g.countdown > 0 || g.autoMode {
+		return false
+	}
+
+	g.applyAction(keyToAction(ev))
+	return false
+}
+
+func keyToAction(ev *tcell.EventKey) string {
+	switch ev.Key() {
+	case tcell.KeyUp:
+		return "up"
+	case tcell.KeyDown:
+		return "down"
+	case tcell.KeyRight:
+		return "accel"
+	case tcell.KeyLeft:
+		return "brake"
+	}
+	switch ev.Rune() {
+	case 'w', 'k':
+		return "up"
+	case 's', 'j':
+		return "down"
+	case 'd', 'l':
+		return "accel"
+	case 'a', 'h':
+		return "brake"
+	case ' ':
+		return "turbo"
+	}
+	return ""
+}
+
+func (g *game) applyAction(action string) {
 	switch action {
-	case "quit":
-		return true
 	case "up":
 		if g.playerLane > 0 && !g.crashed && !g.jumping {
 			g.playerLane--
@@ -249,11 +257,41 @@ func (g *game) handleKey(ev *tcell.EventKey) bool {
 			}
 		}
 	}
-	return false
+}
+
+// returnToOpening resets the game to the opening screen, preserving normal-mode
+// best times. Auto-mode best times are intentionally discarded so they do not
+// leak across modes.
+func (g *game) returnToOpening() {
+	best := g.bestTimes
+	*g = *newGame(g.w, g.h, g.rng)
+	g.bestTimes = best
+}
+
+// restart begins a fresh game while preserving best times and auto-mode state.
+func (g *game) restart() {
+	wasAuto := g.autoMode
+	best := g.bestTimes
+	bestAuto := g.bestTimesAuto
+	*g = *newGame(g.w, g.h, g.rng)
+	g.bestTimes = best
+	g.bestTimesAuto = bestAuto
+	g.started = true
+	g.autoMode = wasAuto
+	g.countdown = 3.0
 }
 
 func (g *game) update(dt float64) {
-	if !g.started || g.finished {
+	if !g.started {
+		return
+	}
+	if g.finished {
+		if g.autoMode {
+			g.autoRestartTimer += dt
+			if g.autoRestartTimer >= 2.0 {
+				g.restart()
+			}
+		}
 		return
 	}
 
@@ -433,19 +471,25 @@ func (g *game) update(dt float64) {
 }
 
 func (g *game) recordTime(t float64) {
-	g.bestTimes = append(g.bestTimes, t)
+	target := &g.bestTimes
+	if g.autoMode {
+		target = &g.bestTimesAuto
+	}
+	*target = append(*target, t)
+	bts := *target
 	// Sort ascending
 	// Use <= so a new tied time bubbles ahead of existing equal entries,
 	// ensuring the new record is kept (and ranked) over the older one.
-	for i := len(g.bestTimes) - 1; i > 0 && g.bestTimes[i] <= g.bestTimes[i-1]; i-- {
-		g.bestTimes[i], g.bestTimes[i-1] = g.bestTimes[i-1], g.bestTimes[i]
+	for i := len(bts) - 1; i > 0 && bts[i] <= bts[i-1]; i-- {
+		bts[i], bts[i-1] = bts[i-1], bts[i]
 	}
-	if len(g.bestTimes) > 3 {
-		g.bestTimes = g.bestTimes[:3]
+	if len(bts) > 3 {
+		bts = bts[:3]
 	}
+	*target = bts
 	// Find rank of this time (1-indexed), 0 if not in top-3
 	g.lastBestRank = 0
-	for i, v := range g.bestTimes {
+	for i, v := range bts {
 		if v == t {
 			g.lastBestRank = i + 1
 			break
@@ -580,11 +624,14 @@ func (g *game) drawOpening(s tcell.Screen) {
 	}
 
 	subY := startY + len(title) + 2
-	prompt := "Press  [Enter]  or  [Space]  to Start"
+	prompt := "Press  [Enter] / [Space]  to Start"
 	drawString(s, (g.w-len(prompt))/2, subY, bg.Foreground(tcell.ColorWhite).Bold(true), prompt)
 
+	autoPrompt := "Press  [a]                to Auto Play"
+	drawString(s, (g.w-len(autoPrompt))/2, subY+1, bg.Foreground(tcell.ColorWhite).Bold(true), autoPrompt)
+
 	quitMsg := "q / Esc : Quit"
-	drawString(s, (g.w-len(quitMsg))/2, subY+1, bg.Foreground(tcell.ColorGray), quitMsg)
+	drawString(s, (g.w-len(quitMsg))/2, subY+2, bg.Foreground(tcell.ColorGray), quitMsg)
 
 	controls := []string{
 		"↑↓/wk/jk : Lane    →/d/l : Accel    ←/a/h : Brake    Space : Turbo",
@@ -592,18 +639,28 @@ func (g *game) drawOpening(s tcell.Screen) {
 	}
 	cstyle := bg.Foreground(tcell.ColorAqua)
 	for i, line := range controls {
-		drawString(s, (g.w-len(line))/2, subY+3+i, cstyle, line)
+		drawString(s, (g.w-len(line))/2, subY+4+i, cstyle, line)
 	}
 }
 
 func (g *game) drawHeader(s tcell.Screen) {
 	style := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorYellow).Bold(true)
-	title := "  TERMINALBIKE  ( ↑↓/wasd/hjkl: move   space: turbo   q: quit )"
+	title := "  TERMINALBIKE  ( ↑↓/wasd/hjkl: move   space: turbo   q: back )"
 	// Fill the entire header row with a black background
 	for x := 0; x < g.w; x++ {
 		s.SetContent(x, 0, ' ', nil, style)
 	}
 	drawString(s, 0, 0, style, title)
+
+	if g.autoMode {
+		label := "[ AUTO PLAY ]  "
+		autoStyle := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorFuchsia).Bold(true)
+		x := g.w - len(label)
+		if x < len(title) {
+			x = len(title) // avoid overlapping the title on narrow terminals
+		}
+		drawString(s, x, 0, autoStyle, label)
+	}
 }
 
 func (g *game) drawTrack(s tcell.Screen) {
@@ -808,18 +865,26 @@ func (g *game) drawFinish(s tcell.Screen) {
 		text      string
 		highlight bool // true = this game's ranked time
 	}
-	rows := []row{
-		{fmt.Sprintf("  FINISH!  Time: %.2fs  ", g.elapsed.Seconds()), false},
-		{"", false},
-		{"  Best Times:", false},
+	header := "  FINISH!  Time: %.2fs  "
+	bestLabel := "  Best Times:"
+	displayBest := g.bestTimes
+	if g.autoMode {
+		header = "  FINISH! (auto)  Time: %.2fs  "
+		bestLabel = "  Best Times (auto):"
+		displayBest = g.bestTimesAuto
 	}
-	for i, t := range g.bestTimes {
+	rows := []row{
+		{fmt.Sprintf(header, g.elapsed.Seconds()), false},
+		{"", false},
+		{bestLabel, false},
+	}
+	for i, t := range displayBest {
 		rows = append(rows, row{
 			text:      fmt.Sprintf("  %s  %.2fs", medals[i], t),
 			highlight: g.lastBestRank == i+1,
 		})
 	}
-	rows = append(rows, row{"", false}, row{"  Enter : Retry    q : Quit  ", false})
+	rows = append(rows, row{"", false}, row{"  Enter : Retry    q : Back  ", false})
 
 	// Determine modal dimensions
 	innerW := 0
@@ -946,6 +1011,9 @@ loop:
 		case now := <-ticker.C:
 			dt := now.Sub(last).Seconds()
 			last = now
+			if g.autoMode {
+				g.autoStep(dt)
+			}
 			g.update(dt)
 			g.draw(screen)
 			screen.Show()
