@@ -803,7 +803,7 @@ func TestDraw_PlayerRendersAtFixedColumnDuringPlay(t *testing.T) {
 
 	g.draw(s)
 
-	laneY := headerRows + 1 + g.playerLane*laneHeight
+	laneY := g.trackTopY() + g.playerLane*laneHeight
 	mainc, _, _, _ := s.GetContent(playerCol, laneY)
 	if mainc != '>' {
 		t.Errorf("player '>' should render at col %d lane-y %d, got %q", playerCol, laneY, mainc)
@@ -821,7 +821,7 @@ func TestDraw_PlayerMovesRightDuringFinishing(t *testing.T) {
 
 	g.draw(s)
 
-	laneY := headerRows + 1 + g.playerLane*laneHeight
+	laneY := g.trackTopY() + g.playerLane*laneHeight
 	wantX := playerCol + 10
 	mainc, _, _, _ := s.GetContent(wantX, laneY)
 	if mainc != '>' {
@@ -1059,10 +1059,11 @@ func TestDraw_AutoModeShowsHeaderBadge(t *testing.T) {
 	g.draw(s)
 	s.Show()
 
+	headerY := g.layoutOffsetY()
 	cells, w, _ := s.GetContents()
 	var header []rune
 	for x := 0; x < w; x++ {
-		header = append(header, cells[x].Runes...)
+		header = append(header, cells[headerY*w+x].Runes...)
 	}
 	if !strings.Contains(string(header), "AUTO PLAY") {
 		t.Errorf("auto-mode header should contain 'AUTO PLAY' badge, got %q", string(header))
@@ -1077,10 +1078,11 @@ func TestDraw_NormalModeHasNoAutoBadge(t *testing.T) {
 	g.draw(s)
 	s.Show()
 
+	headerY := g.layoutOffsetY()
 	cells, w, _ := s.GetContents()
 	var header []rune
 	for x := 0; x < w; x++ {
-		header = append(header, cells[x].Runes...)
+		header = append(header, cells[headerY*w+x].Runes...)
 	}
 	if strings.Contains(string(header), "AUTO PLAY") {
 		t.Errorf("normal-mode header should not contain 'AUTO PLAY' badge, got %q", string(header))

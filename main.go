@@ -506,6 +506,24 @@ func (g *game) cameraX() int {
 	return int(g.distance)
 }
 
+const footerRows = 2 // info line + legend line
+
+// layoutOffsetY returns the top row of the entire game block (header through
+// footer), centering header+track+footer as a unit. Clamps to 0.
+func (g *game) layoutOffsetY() int {
+	blockH := headerRows + 1 + numLanes*laneHeight + 1 + footerRows
+	off := (g.h - blockH) / 2
+	if off < 0 {
+		off = 0
+	}
+	return off
+}
+
+// trackTopY returns the screen row of the first lane row.
+func (g *game) trackTopY() int {
+	return g.layoutOffsetY() + headerRows + 1
+}
+
 // ----- Rendering -----
 
 func (g *game) draw(s tcell.Screen) {
@@ -555,7 +573,7 @@ func (g *game) drawCountdown(s tcell.Screen) {
 	const cellW = 2
 	glyphW := len(glyph[0]) * cellW
 	glyphH := len(glyph)
-	trackTop := headerRows + 1
+	trackTop := g.trackTopY()
 	trackBottom := trackTop + numLanes*laneHeight
 	centerY := (trackTop + trackBottom) / 2
 	startX := (g.w - glyphW) / 2
@@ -644,27 +662,27 @@ func (g *game) drawOpening(s tcell.Screen) {
 }
 
 func (g *game) drawHeader(s tcell.Screen) {
+	y := g.layoutOffsetY()
 	style := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorYellow).Bold(true)
 	title := "  TERMINALBIKE  ( ↑↓/wasd/hjkl: move   space: turbo   q: back )"
-	// Fill the entire header row with a black background
 	for x := 0; x < g.w; x++ {
-		s.SetContent(x, 0, ' ', nil, style)
+		s.SetContent(x, y, ' ', nil, style)
 	}
-	drawString(s, 0, 0, style, title)
+	drawString(s, 0, y, style, title)
 
 	if g.autoMode {
 		label := "[ AUTO PLAY ]  "
 		autoStyle := tcell.StyleDefault.Background(tcell.ColorBlack).Foreground(tcell.ColorFuchsia).Bold(true)
 		x := g.w - len(label)
 		if x < len(title) {
-			x = len(title) // avoid overlapping the title on narrow terminals
+			x = len(title)
 		}
-		drawString(s, x, 0, autoStyle, label)
+		drawString(s, x, y, autoStyle, label)
 	}
 }
 
 func (g *game) drawTrack(s tcell.Screen) {
-	top := headerRows + 1
+	top := g.trackTopY()
 	trackH := numLanes * laneHeight
 	bottom := top + trackH
 
@@ -719,7 +737,7 @@ func (g *game) drawTrack(s tcell.Screen) {
 }
 
 func (g *game) drawObstacles(s tcell.Screen) {
-	top := headerRows + 1
+	top := g.trackTopY()
 	cam := g.cameraX()
 	for _, o := range g.obstacles {
 		sx := o.x + playerCol - cam
@@ -749,7 +767,7 @@ func (g *game) drawObstacles(s tcell.Screen) {
 }
 
 func (g *game) drawRivals(s tcell.Screen) {
-	top := headerRows + 1
+	top := g.trackTopY()
 	cam := g.cameraX()
 	for _, rv := range g.rivals {
 		sx := int(rv.xf) + playerCol - cam
@@ -762,7 +780,7 @@ func (g *game) drawRivals(s tcell.Screen) {
 }
 
 func (g *game) drawPlayer(s tcell.Screen) {
-	top := headerRows + 1
+	top := g.trackTopY()
 	y := top + g.playerLane*laneHeight
 	if g.jumping {
 		y -= 1
@@ -793,7 +811,7 @@ func (g *game) drawPlayer(s tcell.Screen) {
 }
 
 func (g *game) drawFooter(s tcell.Screen) {
-	baseY := headerRows + 1 + numLanes*laneHeight + 1
+	baseY := g.trackTopY() + numLanes*laneHeight + 1
 	if baseY >= g.h {
 		return
 	}
@@ -897,7 +915,7 @@ func (g *game) drawFinish(s tcell.Screen) {
 	boxW := innerW + 2 // left/right border
 	boxH := innerH + 2 // top/bottom border
 
-	trackTop := headerRows + 1
+	trackTop := g.trackTopY()
 	trackBottom := trackTop + numLanes*laneHeight
 	trackCenterY := (trackTop + trackBottom) / 2
 
